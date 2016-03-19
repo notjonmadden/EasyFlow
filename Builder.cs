@@ -9,7 +9,6 @@ using System.Threading.Tasks;
 namespace EasyFlow
 {
     //  TODO: transition priority
-    // ?TODO: define states with enum
     // ?TODO: async workflow update
     // ?TODO: generic workflow factory, data retriever
     public class WorkflowEngineBuilder<TWorkflow> where TWorkflow : Workflow
@@ -29,7 +28,7 @@ namespace EasyFlow
                 throw new ArgumentException("state names cannot be null or whitespace");
             }
 
-            if (stateName.IsWildcard())
+            if (IsWildcard(stateName))
             {
                 throw new ArgumentException("state names may not contain wildcard characters");
             }
@@ -83,17 +82,7 @@ namespace EasyFlow
             {
                 throw new ArgumentNullException("toState cannot contain '*'. Wildcards are only supported for fromState.");
             }
-
-            if (condition == null)
-            {
-                condition = _ => true;
-            }
-
-            if (action == null)
-            {
-                action = _ => { };
-            }
-
+            
             if (!IsWildcard(fromState))
             {
                 if (!_states.Contains(fromState))
@@ -129,17 +118,7 @@ namespace EasyFlow
             {
                 throw new ArgumentException("state names cannot be null or whitespace");
             }
-
-            if (exitCondition == null)
-            {
-                exitCondition = _ => true;
-            }
-
-            if (action == null)
-            {
-                action = _ => { };
-            }
-
+            
             if (!IsWildcard(stateName))
             {
                 if (!_states.Contains(stateName))
@@ -175,11 +154,6 @@ namespace EasyFlow
             if (action == null)
             {
                 throw new ArgumentException("cannot define trigger without an action");
-            }
-
-            if (condition == null)
-            {
-                condition = _ => true;
             }
 
             if (!IsWildcard(stateName))
