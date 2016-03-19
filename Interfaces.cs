@@ -45,6 +45,9 @@ namespace EasyFlow
         event EventHandler<WorkflowEventArgs>             WorkflowCompleted;
         event EventHandler<WorkflowTransitionedEventArgs> WorkflowTransitioned;
         event EventHandler<WorkflowFailedEventArgs>       WorkflowFailed;
+
+        int StepCount { get; }
+        TimeSpan AverageStepTime { get; }
     }
 
     public interface IWorkflowEngine<TWorkflow, TData> where TWorkflow : Workflow
