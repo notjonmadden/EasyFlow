@@ -53,8 +53,8 @@ namespace EasyFlow
                     fetchTask = Task.FromResult(Enumerable.Empty<object>());
                     timeout = TimeSpan.Zero;
                 }
-
-                var completedWorkflows = new List<Tuple<TWorkflow, Exit<TWorkflow>>>();
+                
+                var exitedWorkflows = new List<Tuple<TWorkflow, Exit<TWorkflow>>>();
                 var failedWorkflows = new List<Tuple<TWorkflow, Exception>>();
                 foreach (var workflow in _activeWorkflows)
                 {
@@ -69,9 +69,9 @@ namespace EasyFlow
                     {
                         foreach (var exit in exits)
                         {
-                            if (exit.Condition(workflow))
+                            if (EvaluateCondition(exit.Condition, workflow))
                             {
-                                completedWorkflows.Add(Tuple.Create(workflow, exit));
+                                exitedWorkflows.Add(Tuple.Create(workflow, exit));
                                 wasRemoved = true;
                                 break;
                             }
@@ -97,7 +97,7 @@ namespace EasyFlow
                     {
                         foreach (var transition in transitions)
                         {
-                            if (transition.Condition(workflow))
+                            if (EvaluateCondition(transition.Condition, workflow))
                             {
                                 workflow.CurrentState = transition.StateTo;
                                 OnWorkflowTransitioned(workflow, transition);
@@ -134,7 +134,7 @@ namespace EasyFlow
                                 shouldInvoke = timeSinceLastTrigger > trigger.RateLimit.Value;
                             }
 
-                            if (shouldInvoke && trigger.Condition(workflow))
+                            if (shouldInvoke && EvaluateCondition(trigger.Condition, workflow))
                             {
                                 trigger.Action(workflow);
                                 trigger.TimeLastTriggered = runTime;
@@ -151,7 +151,7 @@ namespace EasyFlow
                     }
                 }
 
-                foreach (var pair in completedWorkflows)
+                foreach (var pair in exitedWorkflows)
                 {
                     TWorkflow workflow = pair.Item1;
                     Exit<TWorkflow> exit = pair.Item2;
@@ -197,8 +197,18 @@ namespace EasyFlow
                     }
                 }
 
-                TimeSpan stepTime = _stepTimer.Elapsed;
+                _totalStepTime += _stepTimer.Elapsed;
             }
+        }
+
+        private bool EvaluateCondition(Predicate<TWorkflow> condition, TWorkflow workflow)
+        {
+            if (condition == null)
+            {
+                return true;
+            }
+
+            return condition(workflow);
         }
 
         public event EventHandler<WorkflowEventArgs>             WorkflowCompleted;
@@ -207,7 +217,10 @@ namespace EasyFlow
 
         private void OnWorkflowCompleted(TWorkflow workflow, Exit<TWorkflow> exit)
         {
-            exit.Action(workflow);
+            if (exit.Action != null)
+            {
+                exit.Action(workflow);
+            }
 
             if (WorkflowCompleted != null)
             {
@@ -217,7 +230,10 @@ namespace EasyFlow
 
         private void OnWorkflowTransitioned(TWorkflow workflow, Transition<TWorkflow> transition)
         {
-            transition.Action(workflow);
+            if (transition.Action != null)
+            {
+                transition.Action(workflow);
+            }
 
             if (WorkflowTransitioned != null)
             {
@@ -242,8 +258,7 @@ namespace EasyFlow
         {
             _states.Add(stateName);
         }
-
-        //public void AddTransition(string from, string to, Predicate<TWorkflow> cond, Action<TWorkflow> action)
+        
         public void AddTransition(Transition<TWorkflow> transition)
         {
             List<Transition<TWorkflow>> transitions;
@@ -253,7 +268,7 @@ namespace EasyFlow
                 _transitionsByFromState.Add(transition.StateFrom, transitions);
             }
 
-            transitions.Add(transition);// new Transition(from, to, cond, action));
+            transitions.Add(transition);
         }
 
         private List<Transition<TWorkflow>> GetTransitions(string from)
@@ -261,7 +276,9 @@ namespace EasyFlow
             List<Transition<TWorkflow>> transitions;
             if (!_transitionsByFromState.TryGetValue(from, out transitions))
             {
-                return new List<Transition<TWorkflow>>();
+                var empty = new List<Transition<TWorkflow>>();
+                _transitionsByFromState.Add(from, empty);
+                return empty;
             }
 
             return transitions;
@@ -284,13 +301,14 @@ namespace EasyFlow
             List<Exit<TWorkflow>> conditions;
             if (!_exitConditionsByState.TryGetValue(from, out conditions))
             {
-                return new List<Exit<TWorkflow>>();
+                var empty = new List<Exit<TWorkflow>>();
+                _exitConditionsByState.Add(from, empty);
+                return empty;
             }
 
             return conditions;
         }
-
-        //public void AddTrigger(string state, Predicate<TWorkflow> cond, Action<TWorkflow> action, TimeSpan? rateLimit)
+        
         public void AddTrigger(string state, Trigger<TWorkflow> trigger)
         {
             var triggers = GetTriggers(state);
@@ -299,9 +317,7 @@ namespace EasyFlow
             {
                 _triggersByState.Add(state, triggers);
             }
-
-            //var trigger = new Trigger(cond, action, rateLimit);
-
+            
             if (trigger.IsRateLimited)
             {
                 Console.WriteLine("Trigger with rate limit: " + trigger.RateLimit);
@@ -315,7 +331,9 @@ namespace EasyFlow
             List<Trigger<TWorkflow>> triggers;
             if (!_triggersByState.TryGetValue(stateName, out triggers))
             {
-                return new List<Trigger<TWorkflow>>();
+                var empty = new List<Trigger<TWorkflow>>();
+                _triggersByState.Add(stateName, empty);
+                return empty;
             }
 
             return triggers;
@@ -391,8 +409,24 @@ namespace EasyFlow
             set;
         }
 
+        public TimeSpan AverageStepTime
+        {
+            get
+            {
+                long stepTicks = _totalStepTime.Ticks;
+                long averageTicks = stepTicks / _stepCount;
+                return TimeSpan.FromTicks(averageTicks);
+            }
+        }
+
+        public int StepCount
+        {
+            get { return _stepCount; }
+        }
+
         private readonly object _stepLock = new object();
         private int _stepCount = 0;
+        private TimeSpan _totalStepTime = TimeSpan.Zero;
         private readonly Stopwatch _stepTimer = new Stopwatch();
         private readonly Stopwatch _runTimer = new Stopwatch();
         private string _initialState;
