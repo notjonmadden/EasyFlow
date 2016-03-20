@@ -36,8 +36,8 @@ namespace EasyFlow
 
         public virtual void OnBeginStep() { }
     }
-
-    public interface IWorkflowEngine<TWorkflow> where TWorkflow : Workflow
+    
+    public interface IWorkflowEngine<out TWorkflow> where TWorkflow : Workflow
     {
         TWorkflow StartWorkflow(object initialData);
         void Step();
