@@ -8,6 +8,11 @@ using System.Threading.Tasks;
 
 namespace EasyFlow
 {
+    // TODO: subordinate workflows
+    //       -- on enter, start new workflow in subordinate
+    //       -- on subordinate exit, ???
+    //       -- on subordinate error, invoke parent's error policy
+    //       -- subordinates can be run async at start of step
     class WorkflowEngine<TWorkflow> : IWorkflowEngine<TWorkflow> where TWorkflow : Workflow
     {
         public TWorkflow StartWorkflow(object data)
@@ -344,6 +349,14 @@ namespace EasyFlow
             _errorPolicyOverridesByState[stateName] = errorPolicy;
         }
 
+        public void AttachSubordinate<TSubordinateWorkflow>(
+            string stateName,
+            IWorkflowEngine<TSubordinateWorkflow> subordinate)
+            where TSubordinateWorkflow : Workflow
+        {
+            _subordinateWorkflowsByState[stateName] = subordinate;
+        }
+
         private IErrorPolicy<TWorkflow> GetErrorPolicy(string stateName)
         {
             IErrorPolicy<TWorkflow> errorPolicy;
@@ -440,6 +453,8 @@ namespace EasyFlow
         private readonly List<TWorkflow> _activeWorkflows = new List<TWorkflow>();
         private readonly Dictionary<string, IErrorPolicy<TWorkflow>>
             _errorPolicyOverridesByState = new Dictionary<string, IErrorPolicy<TWorkflow>>();
+        private readonly Dictionary<string, IWorkflowEngine<Workflow>>
+            _subordinateWorkflowsByState = new Dictionary<string, IWorkflowEngine<Workflow>>();
     }
 
     internal class Trigger<TWorkflow> where TWorkflow : Workflow
