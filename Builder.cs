@@ -9,6 +9,7 @@ using System.Threading.Tasks;
 namespace EasyFlow
 {
     //  TODO: transition priority
+    //  TODO: check for dead-end states (no outgoing transitions and no exits)
     // ?TODO: async workflow update
     // ?TODO: generic workflow factory, data retriever
     public class WorkflowEngineBuilder<TWorkflow> where TWorkflow : Workflow
@@ -25,12 +26,12 @@ namespace EasyFlow
         {
             if (String.IsNullOrWhiteSpace(stateName))
             {
-                throw new ArgumentException("state names cannot be null or whitespace");
+                throw new ArgumentException(NullStateNameMessage);
             }
 
             if (IsWildcard(stateName))
             {
-                throw new ArgumentException("state names may not contain wildcard characters");
+                throw new ArgumentException(IllegalCharInStateNameMessage);
             }
 
             _states.Add(stateName);
@@ -58,14 +59,10 @@ namespace EasyFlow
             Predicate<TWorkflow> condition = null,
             Action<TWorkflow> action = null)
         {
-            if (String.IsNullOrWhiteSpace(fromState))
+            if (String.IsNullOrWhiteSpace(fromState)
+                || String.IsNullOrWhiteSpace(toState))
             {
-                throw new ArgumentException("state names cannot be null or whitespace");
-            }
-
-            if (String.IsNullOrWhiteSpace(toState))
-            {
-                throw new ArgumentException("state names cannot be null or whitespace");
+                throw new ArgumentException(NullStateNameMessage);
             }
 
             if (fromState.Equals(toState))
@@ -116,7 +113,7 @@ namespace EasyFlow
         {
             if (String.IsNullOrWhiteSpace(stateName))
             {
-                throw new ArgumentException("state names cannot be null or whitespace");
+                throw new ArgumentException(NullStateNameMessage);
             }
             
             if (!IsWildcard(stateName))
@@ -148,7 +145,7 @@ namespace EasyFlow
         {
             if (String.IsNullOrWhiteSpace(stateName))
             {
-                throw new ArgumentException("state names cannot be null or whitespace");
+                throw new ArgumentException(NullStateNameMessage);
             }
 
             if (action == null)
@@ -235,7 +232,7 @@ namespace EasyFlow
         {
             if (String.IsNullOrWhiteSpace(stateName))
             {
-                throw new ArgumentException("state name cannot be null or whitespace");
+                throw new ArgumentException(NullStateNameMessage);
             }
 
             // actually set the policy.
@@ -254,6 +251,32 @@ namespace EasyFlow
                 {
                     SetErrorPolicy(policy, state);
                 }
+            }
+
+            return this;
+        }
+
+        public WorkflowEngineBuilder<TWorkflow> AttachSubordinateEngine<TSubordinateWorkflow>(
+            string stateName,
+            IWorkflowEngine<TSubordinateWorkflow> subordinateEngine) 
+            where TSubordinateWorkflow : Workflow
+        {
+            if (String.IsNullOrWhiteSpace(stateName))
+            {
+                throw new ArgumentException(NullStateNameMessage);
+            }
+
+            if (IsWildcard(stateName))
+            {
+                throw new ArgumentException(
+                    "wildcards are not supported for attaching subordinate engines. "
+                    + IllegalCharInStateNameMessage
+                );
+            }
+
+            if (_subordinateWorkflowsByState.ContainsKey(stateName))
+            {
+                throw new ArgumentException("cannot define multiple subordinate workflows for a single state");
             }
 
             return this;
@@ -340,6 +363,19 @@ namespace EasyFlow
             return _states.Where(state => regex.IsMatch(state));
         }
 
+        private void ThrowIfStateNameIsInvalid(string stateName)
+        {
+            if (String.IsNullOrWhiteSpace(stateName))
+            {
+                throw new ArgumentException(NullStateNameMessage);
+            }
+
+            if (IsWildcard(stateName))
+            {
+                throw new ArgumentException(IllegalCharInStateNameMessage);
+            }
+        }
+
         private string _entryState = null;
         private readonly HashSet<string> _states = new HashSet<string>();
         private readonly List<Transition<TWorkflow>> _transitions = new List<Transition<TWorkflow>>();
@@ -348,5 +384,14 @@ namespace EasyFlow
         private IErrorPolicy<TWorkflow> _errorPolicy = null;
         private Dictionary<string, IErrorPolicy<TWorkflow>>
             _errorPolicyOverridesByState = new Dictionary<string, IErrorPolicy<TWorkflow>>();
+        private Dictionary<string, IWorkflowEngine<Workflow>>
+            _subordinateWorkflowsByState = new Dictionary<string, IWorkflowEngine<Workflow>>();
+
+        private static readonly char[] IllegalCharacters = new[] { '*', ':' };
+
+        private const string NullStateNameMessage = "state name cannot be null, empty, or whitespace.";
+        private static readonly string IllegalCharInStateNameMessage
+            = "state name may not contain any of the following characters: "
+            + String.Join(", ", IllegalCharacters);
     }
 }
