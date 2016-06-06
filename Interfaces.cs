@@ -8,35 +8,11 @@ using System.Diagnostics;
 
 namespace EasyFlow
 {
-    public abstract class Workflow
+    public interface IWorkflowEngineInternal<out TWorkflow> where TWorkflow : Workflow
     {
-        public string CurrentState
-        {
-            get;
-            internal set;
-        } = null;
-
-        public bool IsComplete
-        {
-            get;
-            internal set;
-        } = false;
-
-        public bool IsFaulted
-        {
-            get;
-            internal set;
-        } = false;
-
-        public Guid Id
-        {
-            get;
-            internal set;
-        } = default(Guid);
-
-        public virtual void OnBeginStep() { }
+        event EventHandler<WorkflowTransitionedEventArgs> SubordinateTransitioned;
     }
-    
+
     public interface IWorkflowEngine<out TWorkflow> where TWorkflow : Workflow
     {
         TWorkflow StartWorkflow(object initialData);
@@ -46,6 +22,11 @@ namespace EasyFlow
         event EventHandler<WorkflowTransitionedEventArgs> WorkflowTransitioned;
         event EventHandler<WorkflowFailedEventArgs>       WorkflowFailed;
 
+        string Name { get; }
+        IEnumerable<IState> States { get; }
+        IEnumerable<ITransition> Transitions { get; }
+
+        IReadOnlyList<TWorkflow> ActiveWorkflows { get; }
         int StepCount { get; }
         TimeSpan AverageStepTime { get; }
     }
@@ -60,10 +41,18 @@ namespace EasyFlow
         event EventHandler<WorkflowFailedEventArgs> WorkflowFailed;
     }
 
+    public interface IState
+    {
+        string Name { get; }
+        string Description { get; }
+
+        IReadOnlyList<ITransition> Transitions { get; }
+    }
+
     public interface ITransition
     {
-        string StateFrom { get; }
-        string StateTo { get; }
+        IState From { get; }
+        IState To { get; }
     }
 
     public interface IWorkflowDataRetriever<TWorkflow> where TWorkflow : Workflow
