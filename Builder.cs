@@ -8,6 +8,7 @@ using System.Threading.Tasks;
 
 namespace EasyFlow
 {
+    //  TODO: TEST transition builder
     //  TODO: transition priority
     //  TODO: check for dead-end states (no outgoing transitions and no exits)
     // ?TODO: async workflow update
@@ -17,12 +18,12 @@ namespace EasyFlow
         public WorkflowEngineBuilder<TWorkflow> DefineEntryState(string stateName)
         {
             DefineState(stateName);
-            _entryState = stateName;
+            _entryState = _statesByName[stateName];
 
             return this;
         }
 
-        public WorkflowEngineBuilder<TWorkflow> DefineState(string stateName)
+        public WorkflowEngineBuilder<TWorkflow> DefineState(string stateName, string description = null)
         {
             if (String.IsNullOrWhiteSpace(stateName))
             {
@@ -34,7 +35,9 @@ namespace EasyFlow
                 throw new ArgumentException(IllegalCharInStateNameMessage);
             }
 
-            _states.Add(stateName);
+            var state = new State(stateName, description);
+
+            _statesByName.Add(stateName, state);
 
             return this;
         }
@@ -70,7 +73,7 @@ namespace EasyFlow
                 throw new ArgumentException("Cannot transition from a state to itself. Use a trigger instead.");
             }
             
-            if (!_states.Contains(toState))
+            if (!IsStateDefined(toState))
             {
                 throw new ArgumentException("Cannot transition to non-existent state. Make sure toState is defined.");
             }
@@ -79,30 +82,49 @@ namespace EasyFlow
             {
                 throw new ArgumentNullException("toState cannot contain '*'. Wildcards are only supported for fromState.");
             }
-            
+
+            State from = GetState(fromState);
+            State to = GetState(toState);
+
             if (!IsWildcard(fromState))
             {
-                if (!_states.Contains(fromState))
+                if (!IsStateDefined(fromState))
                 {
                     throw new ArgumentException("Cannot transition from non-existent state. Make sure fromState is defined.");
                 }
 
-                var transition = new Transition<TWorkflow>(fromState, toState, condition, action);
+                var transition = new Transition<TWorkflow>(from, to, condition, action);
                 _transitions.Add(transition);
             }
             else
             {
-                foreach (string state in MatchingStates(fromState))
+                foreach (State state in MatchingStates(fromState))
                 {
-                    if (state.Equals(toState))
+                    if (state.Equals(to))
                     {
                         continue;
                     }
 
-                    DefineTransition(state, toState, condition, action);
+                    DefineTransition(state.Name, toState, condition, action);
                 }
             }
             
+            return this;
+        }
+
+        public WorkflowEngineBuilder<TWorkflow> DefineTransition(Action<TransitionBuilder<TWorkflow>> config)
+        {
+            if (config == null)
+            {
+                throw new ArgumentNullException(nameof(config));
+            }
+
+            var builder = new TransitionBuilder<TWorkflow>();
+
+            config(builder);
+
+            builder.BuildTransition(this);
+
             return this;
         }
 
@@ -118,7 +140,7 @@ namespace EasyFlow
             
             if (!IsWildcard(stateName))
             {
-                if (!_states.Contains(stateName))
+                if (!IsStateDefined(stateName))
                 {
                     throw new ArgumentException("Cannot exit from undefined state. Make sure the state is defined.");
                 }
@@ -128,9 +150,9 @@ namespace EasyFlow
             }
             else
             {
-                foreach (string state in MatchingStates(stateName))
+                foreach (State state in MatchingStates(stateName))
                 {
-                    DefineExit(state, exitCondition, action);
+                    DefineExit(state.Name, exitCondition, action);
                 }
             }
 
@@ -155,7 +177,7 @@ namespace EasyFlow
 
             if (!IsWildcard(stateName))
             {
-                if (!_states.Contains(stateName))
+                if (!IsStateDefined(stateName))
                 {
                     throw new ArgumentException("Cannot create trigger on undefined state. Make sure the state is defined.");
                 }
@@ -165,9 +187,9 @@ namespace EasyFlow
             }
             else
             {
-                foreach (string state in MatchingStates(stateName))
+                foreach (State state in MatchingStates(stateName))
                 {
-                    DefineTrigger(state, action, condition, rateLimit);
+                    DefineTrigger(state.Name, action, condition, rateLimit);
                 }
             }
 
@@ -238,7 +260,7 @@ namespace EasyFlow
             // actually set the policy.
             if (!IsWildcard(stateName))
             {
-                if (!_states.Contains(stateName))
+                if (!IsStateDefined(stateName))
                 {
                     throw new ArgumentException("Cannot set error policy on undefined state. Make sure it is defined");
                 }
@@ -247,9 +269,9 @@ namespace EasyFlow
             }
             else
             {
-                foreach (string state in MatchingStates(stateName))
+                foreach (State state in MatchingStates(stateName))
                 {
-                    SetErrorPolicy(policy, state);
+                    SetErrorPolicy(policy, state.Name);
                 }
             }
 
@@ -279,6 +301,8 @@ namespace EasyFlow
                 throw new ArgumentException("cannot define multiple subordinate workflows for a single state");
             }
 
+            _subordinateWorkflowsByState.Add(stateName, subordinateEngine);
+
             return this;
         }
 
@@ -302,18 +326,21 @@ namespace EasyFlow
                 SetErrorPolicy(ErrorPolicy.Default);
             }
 
-            var engine = new WorkflowEngine<TWorkflow>();
+            var engine = new WorkflowEngine<TWorkflow>(_engineName);
 
             engine.InitialState = _entryState;
             engine.ErrorPolicy = _errorPolicy;
             
-            foreach (string state in _states)
+            foreach (State state in States)
             {
                 engine.AddState(state);
             }
 
             foreach (var transition in _transitions)
             {
+                var state = GetState(transition.From.Name);
+
+                state.TransitionsInternal.Add(transition);
                 engine.AddTransition(transition);
             }
 
@@ -338,6 +365,14 @@ namespace EasyFlow
                 engine.SetErrorPolicyOverride(policy, state);
             }
 
+            foreach (var subordinateAttachment in _subordinateWorkflowsByState)
+            {
+                string state = subordinateAttachment.Key;
+                var subordinateEngine = subordinateAttachment.Value;
+
+                engine.AttachSubordinate(state, subordinateEngine);
+            }
+
             engine.WorkflowDataRetriever = workflowRetriever;
             engine.WorkflowFactory       = workflowFactory;
             engine.WorkflowStorage       = workflowStorage;
@@ -355,12 +390,12 @@ namespace EasyFlow
             return str.Contains('*');
         }
 
-        private IEnumerable<string> MatchingStates(string wildcard)
+        private IEnumerable<State> MatchingStates(string wildcard)
         {
             string pattern = wildcard.Replace("*", "(.*)");
             var regex = new Regex(pattern);
 
-            return _states.Where(state => regex.IsMatch(state));
+            return States.Where(state => regex.IsMatch(state.Name));
         }
 
         private void ThrowIfStateNameIsInvalid(string stateName)
@@ -376,8 +411,38 @@ namespace EasyFlow
             }
         }
 
-        private string _entryState = null;
-        private readonly HashSet<string> _states = new HashSet<string>();
+        public WorkflowEngineBuilder(string engineName)
+        {
+            if (engineName == null)
+            {
+                throw new ArgumentNullException("engineName");
+            }
+
+            _engineName = engineName;
+        }
+
+        private IEnumerable<State> States => _statesByName.Values;
+
+        private State GetState(string stateName)
+        {
+            State state;
+            if (_statesByName.TryGetValue(stateName, out state))
+            {
+                return state;
+            }
+
+            return null;
+        }
+
+        private bool IsStateDefined(string stateName)
+        {
+            return _statesByName.ContainsKey(stateName);
+        }
+
+        private readonly string _engineName;
+        private State _entryState = null;
+        private readonly Dictionary<string, State>
+            _statesByName = new Dictionary<string, State>();
         private readonly List<Transition<TWorkflow>> _transitions = new List<Transition<TWorkflow>>();
         private readonly List<Tuple<string, Trigger<TWorkflow>>> _triggers = new List<Tuple<string, Trigger<TWorkflow>>>();
         private readonly List<Exit<TWorkflow>> _exits = new List<Exit<TWorkflow>>();
@@ -393,5 +458,100 @@ namespace EasyFlow
         private static readonly string IllegalCharInStateNameMessage
             = "state name may not contain any of the following characters: "
             + String.Join(", ", IllegalCharacters);
+    }
+
+    public class TransitionBuilder<TWorkflow> where TWorkflow : Workflow
+    {
+        public TransitionBuilder<TWorkflow> From(string state)
+        {
+            _from.Add(state);
+            return this;
+        }
+
+        public TransitionBuilder<TWorkflow> From(IEnumerable<string> states)
+        {
+            foreach (var state in states)
+            {
+                _from.Add(state);
+            }
+
+            return this;
+        }
+
+        public TransitionBuilder<TWorkflow> From(params string[] states)
+        {
+            return From(states);
+        }
+
+        public TransitionBuilder<TWorkflow> To(string state)
+        {
+            _to = state;
+            return this;
+        }
+
+        public TransitionBuilder<TWorkflow> When(Predicate<TWorkflow> condition)
+        {
+            _condition = condition;
+            return this;
+        }
+
+        public TransitionBuilder<TWorkflow> WhenAny(params Predicate<TWorkflow>[] conditions)
+        {
+            _condition = w => conditions.All(c => c?.Invoke(w) ?? true);
+            return this;
+        }
+
+        public TransitionBuilder<TWorkflow> WhenAll(params Predicate<TWorkflow>[] conditions)
+        {
+            _condition = w => conditions.Any(c => c?.Invoke(w) ?? true);
+            return this;
+        }
+
+        public TransitionBuilder<TWorkflow> WithAction(Action<TWorkflow> action)
+        {
+            if (action != null)
+            {
+                _actions.Add(action);
+            }
+
+            return this;
+        }
+
+        public TransitionBuilder<TWorkflow> WithActions(IEnumerable<Action<TWorkflow>> actions)
+        {
+            foreach (var a in actions)
+            {
+                if (a != null)
+                {
+                    _actions.Add(a);
+                }
+            }
+
+            return this;
+        }
+
+        public TransitionBuilder<TWorkflow> WithActions(params Action<TWorkflow>[] actions)
+        {
+            return WithActions(actions);
+        }
+
+        internal void BuildTransition(WorkflowEngineBuilder<TWorkflow> engineBuilder)
+        {
+            Action<TWorkflow> action = _actions.FirstOrDefault();
+            foreach (var a in _actions.Skip(1))
+            {
+                action += a;
+            }
+
+            foreach (var from in _from)
+            {
+                engineBuilder.DefineTransition(from, _to, _condition, action);
+            }
+        }
+
+        private readonly HashSet<string> _from = new HashSet<string>();
+        private string _to;
+        private readonly List<Action<TWorkflow>> _actions = new List<Action<TWorkflow>>();
+        private Predicate<TWorkflow> _condition;
     }
 }
