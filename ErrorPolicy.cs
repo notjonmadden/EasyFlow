@@ -6,36 +6,36 @@ using System.Threading.Tasks;
 
 namespace EasyFlow
 {
-    class ErrorPolicyThrow<TWorkflow> : IErrorPolicy<TWorkflow> where TWorkflow : Workflow
+    class ErrorPolicyThrow<TWorkflowData> : IErrorPolicy<TWorkflowData> where TWorkflowData : class
     {
-        public bool ShouldContinue(TWorkflow workflow, Exception error)
+        public bool ShouldContinue(TWorkflowData workflow, Exception error)
         {
             throw error;
         }
     }
 
-    class ErrorPolicyIgnore<TWorkflow> : IErrorPolicy<TWorkflow> where TWorkflow : Workflow
+    class ErrorPolicyIgnore<TWorkflowData> : IErrorPolicy<TWorkflowData> where TWorkflowData : class
     {
-        public bool ShouldContinue(TWorkflow workflow, Exception error)
+        public bool ShouldContinue(TWorkflowData workflow, Exception error)
         {
-            Console.WriteLine(
-                "Ignoring " + error.GetType().Name
-                + " in state " + workflow.CurrentState
-                + " in workflow " + workflow.Id
-            );
+            //Console.WriteLine(
+            //    "Ignoring " + error.GetType().Name
+            //    + " in state " + workflow.CurrentState
+            //    + " in workflow " + workflow.Id
+            //);
             return true;
         }
     }
 
-    class ErrorPolicyStopWorkflow<TWorkflow> : IErrorPolicy<TWorkflow> where TWorkflow : Workflow
+    class ErrorPolicyStopWorkflow<TWorkflowData> : IErrorPolicy<TWorkflowData> where TWorkflowData : class
     {
-        public bool ShouldContinue(TWorkflow workflow, Exception error)
+        public bool ShouldContinue(TWorkflowData workflow, Exception error)
         {
-            Console.WriteLine(
-                "Failing due to " + error.GetType().Name
-                + " in state " + workflow.CurrentState
-                + " in workflow " + workflow.Id
-            );
+            //Console.WriteLine(
+            //    "Failing due to " + error.GetType().Name
+            //    + " in state " + workflow.CurrentState
+            //    + " in workflow " + workflow.Id
+            //);
             return false;
         }
     }

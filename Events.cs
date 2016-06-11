@@ -6,21 +6,21 @@ using System.Threading.Tasks;
 
 namespace EasyFlow
 {
-    public class WorkflowEventArgs : EventArgs
+    public class WorkflowEventArgs<TWorkflowData> : EventArgs where TWorkflowData : class
     {
-        public Workflow Workflow
+        public Workflow<TWorkflowData> Workflow
         {
             get;
             private set;
         }
 
-        public WorkflowEventArgs(Workflow workflow)
+        public WorkflowEventArgs(Workflow<TWorkflowData> workflow)
         {
             Workflow = workflow;
         }
     }
 
-    public class WorkflowTransitionedEventArgs : WorkflowEventArgs
+    public class WorkflowTransitionedEventArgs<TWorkflowData> : WorkflowEventArgs<TWorkflowData> where TWorkflowData : class
     {
         public ITransition Transition
         {
@@ -28,14 +28,14 @@ namespace EasyFlow
             private set;
         }
 
-        public WorkflowTransitionedEventArgs(ITransition transition, Workflow workflow)
+        public WorkflowTransitionedEventArgs(ITransition transition, Workflow<TWorkflowData> workflow)
             : base(workflow)
         {
             Transition = transition;
         }
     }
 
-    public class WorkflowFailedEventArgs : WorkflowEventArgs
+    public class WorkflowFailedEventArgs<TWorkflowData> : WorkflowEventArgs<TWorkflowData> where TWorkflowData : class
     {
         public Exception Exception
         {
@@ -43,7 +43,7 @@ namespace EasyFlow
             private set;
         }
 
-        public WorkflowFailedEventArgs(Exception exception, Workflow workflow)
+        public WorkflowFailedEventArgs(Exception exception, Workflow<TWorkflowData> workflow)
             : base(workflow)
         {
             Exception = exception;

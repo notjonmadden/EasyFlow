@@ -6,7 +6,8 @@ using System.Threading.Tasks;
 
 namespace EasyFlow
 {
-    public abstract class Workflow
+    // TODO: events -- Transitioned, Completed, Faulted, ...
+    public class Workflow<TData> where TData : class
     {
         public IState CurrentState
         {
@@ -32,9 +33,20 @@ namespace EasyFlow
             internal set;
         } = default(Guid);
 
+        public TData Data
+        {
+            get;
+            internal set;
+        } = null;
         
 
         public virtual void OnBeginStep() { }
+
+        internal Workflow(Guid id, IState initialState, TData data) {
+            Id = id;
+            CurrentState = initialState;
+            Data = data;
+        }
 
         public override string ToString()
         {
@@ -62,7 +74,7 @@ namespace EasyFlow
                 return true;
             }
 
-            var other = obj as Workflow;
+            var other = obj as Workflow<TData>;
             if (other == null)
             {
                 return false;

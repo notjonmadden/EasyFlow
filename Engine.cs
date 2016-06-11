@@ -16,15 +16,11 @@ namespace EasyFlow
     //       -- if subordinate not complete, skip step of parent?
     //       -- subordinates can be run async at start of step
     //       -- CurrentState = "StateWithSubordinate.ChildState.GrandchildState"
-    class WorkflowEngine<TWorkflow> : IWorkflowEngine<TWorkflow> where TWorkflow : Workflow
+    class WorkflowEngine<TWorkflowData> : IWorkflowEngine<TWorkflowData> where TWorkflowData : class
     {
-        public TWorkflow StartWorkflow(object data)
+        public Workflow<TWorkflowData> StartWorkflow(TWorkflowData data)
         {
-            TWorkflow workflow = WorkflowFactory.Create(data);
-
-            workflow.CurrentState = InitialState;
-            workflow.IsComplete = false;
-            workflow.Id = Guid.NewGuid();
+            var workflow = new Workflow<TWorkflowData>(Guid.NewGuid(), InitialState, data);
 
             _activeWorkflows.Add(workflow);
 
@@ -49,18 +45,18 @@ namespace EasyFlow
                     _runTimer.Start();
                 }
 
-                Task<IEnumerable<object>> fetchTask;
-                TimeSpan timeout;
-                if (WorkflowDataRetriever != null)
-                {
-                    fetchTask = Task.Run(() => WorkflowDataRetriever.FetchWorkflowData());
-                    timeout = WorkflowDataRetriever.FetchTimeout;
-                }
-                else
-                {
-                    fetchTask = Task.FromResult(Enumerable.Empty<object>());
-                    timeout = TimeSpan.Zero;
-                }
+                //Task<IEnumerable<object>> fetchTask;
+                //TimeSpan timeout;
+                //if (WorkflowDataRetriever != null)
+                //{
+                //    fetchTask = Task.Run(() => WorkflowDataRetriever.FetchWorkflowData());
+                //    timeout = WorkflowDataRetriever.FetchTimeout;
+                //}
+                //else
+                //{
+                //    fetchTask = Task.FromResult(Enumerable.Empty<object>());
+                //    timeout = TimeSpan.Zero;
+                //}
 
                 foreach (var subordinateEngine in Subordinates)
                 {
@@ -72,8 +68,8 @@ namespace EasyFlow
                     subordinateEngine.Step();
                 }
 
-                var exitedWorkflows = new List<Tuple<TWorkflow, Exit<TWorkflow>>>();
-                var failedWorkflows = new List<Tuple<TWorkflow, Exception>>();
+                var exitedWorkflows = new List<Tuple<Workflow<TWorkflowData>, Exit<TWorkflowData>>>();
+                var failedWorkflows = new List<Tuple<Workflow<TWorkflowData>, Exception>>();
                 foreach (var workflow in _activeWorkflows)
                 {
                     if (_workflowsAwaitingSubordinate.Contains(workflow))
@@ -84,7 +80,7 @@ namespace EasyFlow
                     workflow.OnBeginStep();
 
                     IState state = workflow.CurrentState;
-                    IErrorPolicy<TWorkflow> errorPolicy = GetErrorPolicy(state.Name);
+                    IErrorPolicy<TWorkflowData> errorPolicy = GetErrorPolicy(state.Name);
 
                     bool wasRemoved = false;
                     var exits = GetExits(state.Name);
@@ -102,7 +98,7 @@ namespace EasyFlow
                     }
                     catch (Exception ex)
                     {
-                        if (!errorPolicy.ShouldContinue(workflow, ex))
+                        if (!errorPolicy.ShouldContinue(workflow.Data, ex))
                         {
                             failedWorkflows.Add(Tuple.Create(workflow, ex));
                             continue;
@@ -131,7 +127,7 @@ namespace EasyFlow
                     }
                     catch (Exception ex)
                     {
-                        if (!errorPolicy.ShouldContinue(workflow, ex))
+                        if (!errorPolicy.ShouldContinue(workflow.Data, ex))
                         {
                             failedWorkflows.Add(Tuple.Create(workflow, ex));
                             continue;
@@ -158,14 +154,14 @@ namespace EasyFlow
 
                             if (shouldInvoke && EvaluateCondition(trigger.Condition, workflow))
                             {
-                                trigger.Action(workflow);
+                                trigger.Action(workflow.Data);
                                 trigger.TimeLastTriggered = runTime;
                             }
                         }
                     }
                     catch (Exception ex)
                     {
-                        if (!errorPolicy.ShouldContinue(workflow, ex))
+                        if (!errorPolicy.ShouldContinue(workflow.Data, ex))
                         {
                             failedWorkflows.Add(Tuple.Create(workflow, ex));
                             continue;
@@ -175,8 +171,8 @@ namespace EasyFlow
 
                 foreach (var pair in exitedWorkflows)
                 {
-                    TWorkflow workflow = pair.Item1;
-                    Exit<TWorkflow> exit = pair.Item2;
+                    Workflow<TWorkflowData> workflow = pair.Item1;
+                    Exit<TWorkflowData> exit = pair.Item2;
 
                     workflow.IsComplete = true;
                     OnWorkflowCompleted(workflow, exit);
@@ -185,7 +181,7 @@ namespace EasyFlow
 
                 foreach (var pair in failedWorkflows)
                 {
-                    TWorkflow workflow = pair.Item1;
+                    Workflow<TWorkflowData> workflow = pair.Item1;
                     Exception error = pair.Item2;
 
                     workflow.IsFaulted = true;
@@ -193,83 +189,83 @@ namespace EasyFlow
                     _activeWorkflows.Remove(workflow);
                 }
 
-                if (fetchTask != null)
-                {
-                    IEnumerable<object> data = null;
+                //if (fetchTask != null)
+                //{
+                //    IEnumerable<object> data = null;
 
-                    if (!fetchTask.Wait(timeout))
-                    {
-                        Trace.TraceWarning("Took too long to fetch workflow data");
-                    }
-                    else if (fetchTask.IsFaulted)
-                    {
-                        Trace.TraceWarning($"Fetch failed: {fetchTask.Exception}");
-                    }
-                    else
-                    {
-                        data = fetchTask.Result;
-                    }
+                //    if (!fetchTask.Wait(timeout))
+                //    {
+                //        Trace.TraceWarning("Took too long to fetch workflow data");
+                //    }
+                //    else if (fetchTask.IsFaulted)
+                //    {
+                //        Trace.TraceWarning($"Fetch failed: {fetchTask.Exception}");
+                //    }
+                //    else
+                //    {
+                //        data = fetchTask.Result;
+                //    }
 
-                    if (data != null)
-                    {
-                        foreach (object datum in data)
-                        {
-                            StartWorkflow(datum);
-                        }
-                    }
-                }
+                //    if (data != null)
+                //    {
+                //        foreach (object datum in data)
+                //        {
+                //            StartWorkflow(datum);
+                //        }
+                //    }
+                //}
 
                 _totalStepTime += _stepTimer.Elapsed;
             }
         }
 
-        private bool EvaluateCondition(Predicate<TWorkflow> condition, TWorkflow workflow)
+        private bool EvaluateCondition(Predicate<TWorkflowData> condition, Workflow<TWorkflowData> workflow)
         {
             if (condition == null)
             {
                 return true;
             }
 
-            return condition(workflow);
+            return condition(workflow.Data);
         }
 
-        public event EventHandler<WorkflowEventArgs>             WorkflowCompleted;
-        public event EventHandler<WorkflowTransitionedEventArgs> WorkflowTransitioned;
-        public event EventHandler<WorkflowFailedEventArgs>       WorkflowFailed;
-        public event EventHandler<WorkflowTransitionedEventArgs> SubordinateTransitioned;
+        public event EventHandler<WorkflowEventArgs<TWorkflowData>>             WorkflowCompleted;
+        public event EventHandler<WorkflowTransitionedEventArgs<TWorkflowData>> WorkflowTransitioned;
+        public event EventHandler<WorkflowFailedEventArgs<TWorkflowData>>       WorkflowFailed;
+        public event EventHandler<WorkflowTransitionedEventArgs<TWorkflowData>> SubordinateTransitioned;
 
-        private void OnWorkflowCompleted(TWorkflow workflow, Exit<TWorkflow> exit)
+        private void OnWorkflowCompleted(Workflow<TWorkflowData> workflow, Exit<TWorkflowData> exit)
         {
             if (exit.Action != null)
             {
-                exit.Action(workflow);
+                exit.Action(workflow.Data);
             }
 
             if (WorkflowCompleted != null)
             {
-                WorkflowCompleted(this, new WorkflowEventArgs(workflow));
+                WorkflowCompleted(this, new WorkflowEventArgs<TWorkflowData>(workflow));
             }
         }
 
-        private void OnWorkflowTransitioned(TWorkflow workflow, Transition<TWorkflow> transition)
+        private void OnWorkflowTransitioned(Workflow<TWorkflowData> workflow, Transition<TWorkflowData> transition)
         {
             Debug.Assert(workflow.CurrentState.Equals(transition.To));
 
             if (transition.Action != null)
             {
-                transition.Action(workflow);
+                transition.Action(workflow.Data);
             }
 
             if (WorkflowTransitioned != null)
             {
-                var args = new WorkflowTransitionedEventArgs(transition, workflow);
+                var args = new WorkflowTransitionedEventArgs<TWorkflowData>(transition, workflow);
                 WorkflowTransitioned(this, args);
             }
 
             StartSubordinate(workflow);
         }
 
-        private void OnWorkflowFailed(TWorkflow workflow, Exception exception)
+        private void OnWorkflowFailed(Workflow<TWorkflowData> workflow, Exception exception)
         {
             if (exception is TargetInvocationException)
             {
@@ -278,15 +274,15 @@ namespace EasyFlow
 
             if (WorkflowFailed != null)
             {
-                WorkflowFailed(this, new WorkflowFailedEventArgs(exception, workflow));
+                WorkflowFailed(this, new WorkflowFailedEventArgs<TWorkflowData>(exception, workflow));
             }
         }
 
-        private void OnSubordinateTransitioned(TWorkflow workflow, ITransition transition)
+        private void OnSubordinateTransitioned(Workflow<TWorkflowData> workflow, ITransition transition)
         {
             if (SubordinateTransitioned != null)
             {
-                var args = new WorkflowTransitionedEventArgs(transition, workflow);
+                var args = new WorkflowTransitionedEventArgs<TWorkflowData>(transition, workflow);
                 SubordinateTransitioned(this, args);
             }
         }
@@ -316,24 +312,24 @@ namespace EasyFlow
             _statesByName.Add(state.Name, state);
         }
         
-        public void AddTransition(Transition<TWorkflow> transition)
+        public void AddTransition(Transition<TWorkflowData> transition)
         {
-            List<Transition<TWorkflow>> transitions;
+            List<Transition<TWorkflowData>> transitions;
             if (!_transitionsByFromState.TryGetValue(transition.From.Name, out transitions))
             {
-                transitions = new List<Transition<TWorkflow>>();
+                transitions = new List<Transition<TWorkflowData>>();
                 _transitionsByFromState.Add(transition.From.Name, transitions);
             }
 
             transitions.Add(transition);
         }
 
-        private List<Transition<TWorkflow>> GetTransitions(string from)
+        private List<Transition<TWorkflowData>> GetTransitions(string from)
         {
-            List<Transition<TWorkflow>> transitions;
+            List<Transition<TWorkflowData>> transitions;
             if (!_transitionsByFromState.TryGetValue(from, out transitions))
             {
-                var empty = new List<Transition<TWorkflow>>();
+                var empty = new List<Transition<TWorkflowData>>();
                 _transitionsByFromState.Add(from, empty);
                 return empty;
             }
@@ -341,24 +337,24 @@ namespace EasyFlow
             return transitions;
         }
 
-        public void AddExit(Exit<TWorkflow> exit)
+        public void AddExit(Exit<TWorkflowData> exit)
         {
-            List<Exit<TWorkflow>> exits;
+            List<Exit<TWorkflowData>> exits;
             if (!_exitConditionsByState.TryGetValue(exit.StateFrom, out exits))
             {
-                exits = new List<Exit<TWorkflow>>();
+                exits = new List<Exit<TWorkflowData>>();
                 _exitConditionsByState.Add(exit.StateFrom, exits);
             }
 
             exits.Add(exit);
         }
 
-        private List<Exit<TWorkflow>> GetExits(string from)
+        private List<Exit<TWorkflowData>> GetExits(string from)
         {
-            List<Exit<TWorkflow>> conditions;
+            List<Exit<TWorkflowData>> conditions;
             if (!_exitConditionsByState.TryGetValue(from, out conditions))
             {
-                var empty = new List<Exit<TWorkflow>>();
+                var empty = new List<Exit<TWorkflowData>>();
                 _exitConditionsByState.Add(from, empty);
                 return empty;
             }
@@ -366,24 +362,24 @@ namespace EasyFlow
             return conditions;
         }
         
-        public void AddTrigger(string state, Trigger<TWorkflow> trigger)
+        public void AddTrigger(string state, Trigger<TWorkflowData> trigger)
         {
             var triggers = GetTriggers(state);
 
-            if (!triggers.Any())
-            {
-                _triggersByState.Add(state, triggers);
-            }
+            //if (!triggers.Any())
+            //{
+            //    _triggersByState.Add(state, triggers);
+            //}
 
             triggers.Add(trigger);
         }
 
-        private List<Trigger<TWorkflow>> GetTriggers(string stateName)
+        private List<Trigger<TWorkflowData>> GetTriggers(string stateName)
         {
-            List<Trigger<TWorkflow>> triggers;
+            List<Trigger<TWorkflowData>> triggers;
             if (!_triggersByState.TryGetValue(stateName, out triggers))
             {
-                var empty = new List<Trigger<TWorkflow>>();
+                var empty = new List<Trigger<TWorkflowData>>();
                 _triggersByState.Add(stateName, empty);
                 return empty;
             }
@@ -391,18 +387,18 @@ namespace EasyFlow
             return triggers;
         }
 
-        public void SetErrorPolicyOverride(IErrorPolicy<TWorkflow> errorPolicy, string stateName)
+        public void SetErrorPolicyOverride(IErrorPolicy<TWorkflowData> errorPolicy, string stateName)
         {
             _errorPolicyOverridesByState[stateName] = errorPolicy;
         }
 
-        public void AttachSubordinate<TSubordinateWorkflow>(
+        public void AttachSubordinate(
             string stateName,
-            IWorkflowEngine<TSubordinateWorkflow> subordinate)
-            where TSubordinateWorkflow : Workflow
+            IWorkflowEngine<TWorkflowData> subordinate)
+            //where TSubordinateWorkflow : Workflow
         {
             // TODO: determine if event detachment is necessary
-            IWorkflowEngine<Workflow> currentSubordinate;
+            IWorkflowEngine<TWorkflowData> currentSubordinate;
             if (_subordinateWorkflowsByState.TryGetValue(stateName, out currentSubordinate))
             {
                 currentSubordinate.WorkflowCompleted -= Subordinate_WorkflowCompleted;
@@ -417,9 +413,9 @@ namespace EasyFlow
             _subordinateWorkflowsByState[stateName] = subordinate;
         }
 
-        private IWorkflowEngine<Workflow> GetSubordinate(string stateName)
+        private IWorkflowEngine<TWorkflowData> GetSubordinate(string stateName)
         {
-            IWorkflowEngine<Workflow> subordinate;
+            IWorkflowEngine<TWorkflowData> subordinate;
             if (!_subordinateWorkflowsByState.TryGetValue(stateName, out subordinate))
             {
                 return null;
@@ -428,7 +424,7 @@ namespace EasyFlow
             return subordinate;
         }
 
-        private void StartSubordinate(TWorkflow parent)
+        private void StartSubordinate(Workflow<TWorkflowData> parent)
         {
             var subordinateEngine = GetSubordinate(parent.CurrentState.Name);
             if (subordinateEngine == null)
@@ -436,29 +432,29 @@ namespace EasyFlow
                 return;
             }
 
-            var subordinate = subordinateEngine.StartWorkflow(parent);
+            var subordinate = subordinateEngine.StartWorkflow(parent.Data);
 
             _parentWorkflowsByChildID.Add(subordinate.Id, parent);
             _workflowsAwaitingSubordinate.Add(parent);
         }
 
-        private void Subordinate_WorkflowTransitioned(object sender, WorkflowTransitionedEventArgs e)
+        private void Subordinate_WorkflowTransitioned(object sender, WorkflowTransitionedEventArgs<TWorkflowData> e)
         {
-            Workflow subordinate = e.Workflow;
-            TWorkflow parent = _parentWorkflowsByChildID[subordinate.Id];
+            Workflow<TWorkflowData> subordinate = e.Workflow;
+            Workflow<TWorkflowData> parent = _parentWorkflowsByChildID[subordinate.Id];
             
             OnSubordinateTransitioned(parent, e.Transition);
         }
 
-        private void Subordinate_WorkflowFailed(object sender, WorkflowFailedEventArgs e)
+        private void Subordinate_WorkflowFailed(object sender, WorkflowFailedEventArgs<TWorkflowData> e)
         {
-            Workflow failedSubordinate = e.Workflow;
-            TWorkflow parent = _parentWorkflowsByChildID[failedSubordinate.Id];
+            Workflow<TWorkflowData> failedSubordinate = e.Workflow;
+            Workflow<TWorkflowData> parent = _parentWorkflowsByChildID[failedSubordinate.Id];
 
             _parentWorkflowsByChildID.Remove(failedSubordinate.Id);
 
-            IErrorPolicy<TWorkflow> errorPolicy = GetErrorPolicy(parent.CurrentState.Name);
-            if (!errorPolicy.ShouldContinue(parent, e.Exception))
+            IErrorPolicy<TWorkflowData> errorPolicy = GetErrorPolicy(parent.CurrentState.Name);
+            if (!errorPolicy.ShouldContinue(parent.Data, e.Exception))
             {
                 OnWorkflowFailed(parent, e.Exception);
                 _activeWorkflows.Remove(parent);
@@ -472,18 +468,18 @@ namespace EasyFlow
             StartSubordinate(parent);
         }
 
-        private void Subordinate_WorkflowCompleted(object sender, WorkflowEventArgs e)
+        private void Subordinate_WorkflowCompleted(object sender, WorkflowEventArgs<TWorkflowData> e)
         {
-            Workflow subordinate = e.Workflow;
-            TWorkflow parent = _parentWorkflowsByChildID[subordinate.Id];
+            Workflow<TWorkflowData> subordinate = e.Workflow;
+            Workflow<TWorkflowData> parent = _parentWorkflowsByChildID[subordinate.Id];
 
             _parentWorkflowsByChildID.Remove(subordinate.Id);
             _workflowsAwaitingSubordinate.Remove(parent);
         }
 
-        private IErrorPolicy<TWorkflow> GetErrorPolicy(string stateName)
+        private IErrorPolicy<TWorkflowData> GetErrorPolicy(string stateName)
         {
-            IErrorPolicy<TWorkflow> errorPolicy;
+            IErrorPolicy<TWorkflowData> errorPolicy;
             if (_errorPolicyOverridesByState.TryGetValue(stateName, out errorPolicy))
             {
                 return errorPolicy;
@@ -522,31 +518,31 @@ namespace EasyFlow
 
         //public IEnumerable<string> States => _states.ToList();
 
-        public IErrorPolicy<TWorkflow> ErrorPolicy
+        public IErrorPolicy<TWorkflowData> ErrorPolicy
         {
             get;
             set;
         }
 
-        public IWorkflowFactory<TWorkflow> WorkflowFactory
+        //public IWorkflowFactory<TWorkflowData> WorkflowFactory
+        //{
+        //    get;
+        //    set;
+        //}
+
+        //public IWorkflowDataRetriever<TWorkflowData> WorkflowDataRetriever
+        //{
+        //    get;
+        //    set;
+        //}
+
+        public IWorkflowStorage<TWorkflowData> WorkflowStorage
         {
             get;
             set;
         }
 
-        public IWorkflowDataRetriever<TWorkflow> WorkflowDataRetriever
-        {
-            get;
-            set;
-        }
-
-        public IWorkflowStorage<TWorkflow> WorkflowStorage
-        {
-            get;
-            set;
-        }
-
-        public IReadOnlyList<TWorkflow> ActiveWorkflows => _activeWorkflows;
+        public IReadOnlyList<Workflow<TWorkflowData>> ActiveWorkflows => _activeWorkflows;
 
         public TimeSpan AverageStepTime
         {
@@ -560,7 +556,7 @@ namespace EasyFlow
 
         public int StepCount => _stepCount;
 
-        private IEnumerable<IWorkflowEngine<Workflow>>
+        private IEnumerable<IWorkflowEngine<TWorkflowData>>
             Subordinates => _subordinateWorkflowsByState.Values;
 
         public WorkflowEngine(string name)
@@ -575,20 +571,30 @@ namespace EasyFlow
         private readonly Stopwatch _runTimer = new Stopwatch();
         private IState _initialState;
         private readonly HashSet<string> _stateNames = new HashSet<string>();
-        private readonly Dictionary<string, List<Transition<TWorkflow>>>
-            _transitionsByFromState = new Dictionary<string, List<Transition<TWorkflow>>>();
-        private readonly Dictionary<string, List<Exit<TWorkflow>>>
-            _exitConditionsByState = new Dictionary<string, List<Exit<TWorkflow>>>();
-        private readonly Dictionary<string, List<Trigger<TWorkflow>>>
-            _triggersByState = new Dictionary<string, List<Trigger<TWorkflow>>>();
-        private readonly List<TWorkflow> _activeWorkflows = new List<TWorkflow>();
-        private readonly Dictionary<string, IErrorPolicy<TWorkflow>>
-            _errorPolicyOverridesByState = new Dictionary<string, IErrorPolicy<TWorkflow>>();
-        private readonly Dictionary<string, IWorkflowEngine<Workflow>>
-            _subordinateWorkflowsByState = new Dictionary<string, IWorkflowEngine<Workflow>>();
-        private readonly Dictionary<Guid, TWorkflow>
-            _parentWorkflowsByChildID = new Dictionary<Guid, TWorkflow>();
-        private readonly HashSet<TWorkflow> _workflowsAwaitingSubordinate = new HashSet<TWorkflow>();
+
+        private readonly Dictionary<string, List<Transition<TWorkflowData>>>
+            _transitionsByFromState = new Dictionary<string, List<Transition<TWorkflowData>>>();
+
+        private readonly Dictionary<string, List<Exit<TWorkflowData>>>
+            _exitConditionsByState = new Dictionary<string, List<Exit<TWorkflowData>>>();
+
+        private readonly Dictionary<string, List<Trigger<TWorkflowData>>>
+            _triggersByState = new Dictionary<string, List<Trigger<TWorkflowData>>>();
+
+        private readonly List<Workflow<TWorkflowData>>
+            _activeWorkflows = new List<Workflow<TWorkflowData>>();
+
+        private readonly Dictionary<string, IErrorPolicy<TWorkflowData>>
+            _errorPolicyOverridesByState = new Dictionary<string, IErrorPolicy<TWorkflowData>>();
+
+        private readonly Dictionary<string, IWorkflowEngine<TWorkflowData>>
+            _subordinateWorkflowsByState = new Dictionary<string, IWorkflowEngine<TWorkflowData>>();
+
+        private readonly Dictionary<Guid, Workflow<TWorkflowData>>
+            _parentWorkflowsByChildID = new Dictionary<Guid, Workflow<TWorkflowData>>();
+
+        private readonly HashSet<Workflow<TWorkflowData>>
+            _workflowsAwaitingSubordinate = new HashSet<Workflow<TWorkflowData>>();
 
         private readonly HashSet<State> _allStates
             = new HashSet<State>();
@@ -645,15 +651,15 @@ namespace EasyFlow
         }
     }
 
-    internal class Trigger<TWorkflow> where TWorkflow : Workflow
+    internal class Trigger<TWorkflowData> where TWorkflowData : class
     {
-        public Predicate<TWorkflow> Condition { get; private set; }
-        public Action<TWorkflow> Action { get; private set; }
+        public Predicate<TWorkflowData> Condition { get; private set; }
+        public Action<TWorkflowData> Action { get; private set; }
         public TimeSpan? RateLimit { get; private set; }
         public bool IsRateLimited { get { return RateLimit.HasValue; } }
         public TimeSpan? TimeLastTriggered { get; internal set; }
 
-        public Trigger(Predicate<TWorkflow> condition, Action<TWorkflow> action, TimeSpan? rateLimit = null)
+        public Trigger(Predicate<TWorkflowData> condition, Action<TWorkflowData> action, TimeSpan? rateLimit = null)
         {
             Condition = condition;
             Action = action;
@@ -661,35 +667,40 @@ namespace EasyFlow
         }
     }
 
-    internal class Transition<TWorkflow> : ITransition where TWorkflow : Workflow
+    internal class Transition<TWorkflowData> : ITransition where TWorkflowData : class
     {
         public IState From { get; private set; }
         public IState To { get; private set; }
-        public Predicate<TWorkflow> Condition => _trigger.Condition; 
-        public Action<TWorkflow> Action => _trigger.Action;
+        public Predicate<TWorkflowData> Condition => _trigger.Condition; 
+        public Action<TWorkflowData> Action => _trigger.Action;
 
-        public Transition(State from, State to, Predicate<TWorkflow> condition, Action<TWorkflow> action)
+        public Transition(State from, State to, Predicate<TWorkflowData> condition, Action<TWorkflowData> action)
         {
-            _trigger = new Trigger<TWorkflow>(condition, action);
+            _trigger = new Trigger<TWorkflowData>(condition, action);
             From = from;
             To = to;
         }
 
-        private readonly Trigger<TWorkflow> _trigger;
+        public override string ToString()
+        {
+            return $"{From.Name} -> {To.Name}";
+        }
+
+        private readonly Trigger<TWorkflowData> _trigger;
     }
 
-    internal class Exit<TWorkflow> where TWorkflow : Workflow
+    internal class Exit<TWorkflowData> where TWorkflowData : class
     {
         public string StateFrom { get; private set; }
-        public Predicate<TWorkflow> Condition => _trigger.Condition;
-        public Action<TWorkflow> Action => _trigger.Action;
+        public Predicate<TWorkflowData> Condition => _trigger.Condition;
+        public Action<TWorkflowData> Action => _trigger.Action;
 
-        public Exit(string from, Predicate<TWorkflow> condition, Action<TWorkflow> action)
+        public Exit(string from, Predicate<TWorkflowData> condition, Action<TWorkflowData> action)
         {
-            _trigger = new Trigger<TWorkflow>(condition, action);
+            _trigger = new Trigger<TWorkflowData>(condition, action);
             StateFrom = from;
         }
 
-        private readonly Trigger<TWorkflow> _trigger;
+        private readonly Trigger<TWorkflowData> _trigger;
     }
 }

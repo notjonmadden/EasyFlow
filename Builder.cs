@@ -13,9 +13,9 @@ namespace EasyFlow
     //  TODO: check for dead-end states (no outgoing transitions and no exits)
     // ?TODO: async workflow update
     // ?TODO: generic workflow factory, data retriever
-    public class WorkflowEngineBuilder<TWorkflow> where TWorkflow : Workflow
+    public class WorkflowEngineBuilder<TWorkflowData> where TWorkflowData : class
     {
-        public WorkflowEngineBuilder<TWorkflow> DefineEntryState(string stateName)
+        public WorkflowEngineBuilder<TWorkflowData> DefineEntryState(string stateName)
         {
             DefineState(stateName);
             _entryState = _statesByName[stateName];
@@ -23,7 +23,7 @@ namespace EasyFlow
             return this;
         }
 
-        public WorkflowEngineBuilder<TWorkflow> DefineState(string stateName, string description = null)
+        public WorkflowEngineBuilder<TWorkflowData> DefineState(string stateName, string description = null)
         {
             if (String.IsNullOrWhiteSpace(stateName))
             {
@@ -42,7 +42,7 @@ namespace EasyFlow
             return this;
         }
 
-        public WorkflowEngineBuilder<TWorkflow> DefineStates(params string[] stateNames)
+        public WorkflowEngineBuilder<TWorkflowData> DefineStates(params string[] stateNames)
         {
             if (stateNames == null)
             {
@@ -57,10 +57,10 @@ namespace EasyFlow
             return this;
         }
 
-        public WorkflowEngineBuilder<TWorkflow> DefineTransition(
+        public WorkflowEngineBuilder<TWorkflowData> DefineTransition(
             string fromState, string toState,
-            Predicate<TWorkflow> condition = null,
-            Action<TWorkflow> action = null)
+            Predicate<TWorkflowData> condition = null,
+            Action<TWorkflowData> action = null)
         {
             if (String.IsNullOrWhiteSpace(fromState)
                 || String.IsNullOrWhiteSpace(toState))
@@ -93,7 +93,7 @@ namespace EasyFlow
                     throw new ArgumentException("Cannot transition from non-existent state. Make sure fromState is defined.");
                 }
 
-                var transition = new Transition<TWorkflow>(from, to, condition, action);
+                var transition = new Transition<TWorkflowData>(from, to, condition, action);
                 _transitions.Add(transition);
             }
             else
@@ -112,14 +112,14 @@ namespace EasyFlow
             return this;
         }
 
-        public WorkflowEngineBuilder<TWorkflow> DefineTransition(Action<TransitionBuilder<TWorkflow>> config)
+        public WorkflowEngineBuilder<TWorkflowData> DefineTransition(Action<TransitionBuilder<TWorkflowData>> config)
         {
             if (config == null)
             {
                 throw new ArgumentNullException(nameof(config));
             }
 
-            var builder = new TransitionBuilder<TWorkflow>();
+            var builder = new TransitionBuilder<TWorkflowData>();
 
             config(builder);
 
@@ -128,10 +128,10 @@ namespace EasyFlow
             return this;
         }
 
-        public WorkflowEngineBuilder<TWorkflow> DefineExit(
+        public WorkflowEngineBuilder<TWorkflowData> DefineExit(
             string stateName,
-            Predicate<TWorkflow> exitCondition = null,
-            Action<TWorkflow> action = null)
+            Predicate<TWorkflowData> exitCondition = null,
+            Action<TWorkflowData> action = null)
         {
             if (String.IsNullOrWhiteSpace(stateName))
             {
@@ -145,7 +145,7 @@ namespace EasyFlow
                     throw new ArgumentException("Cannot exit from undefined state. Make sure the state is defined.");
                 }
 
-                var exit = new Exit<TWorkflow>(stateName, exitCondition, action);
+                var exit = new Exit<TWorkflowData>(stateName, exitCondition, action);
                 _exits.Add(exit);
             }
             else
@@ -159,10 +159,10 @@ namespace EasyFlow
             return this;
         }
 
-        public WorkflowEngineBuilder<TWorkflow> DefineTrigger(
+        public WorkflowEngineBuilder<TWorkflowData> DefineTrigger(
             string stateName,
-            Action<TWorkflow> action,
-            Predicate<TWorkflow> condition = null,
+            Action<TWorkflowData> action,
+            Predicate<TWorkflowData> condition = null,
             TimeSpan? rateLimit = null)
         {
             if (String.IsNullOrWhiteSpace(stateName))
@@ -182,7 +182,7 @@ namespace EasyFlow
                     throw new ArgumentException("Cannot create trigger on undefined state. Make sure the state is defined.");
                 }
 
-                var trigger = new Trigger<TWorkflow>(condition, action, rateLimit);
+                var trigger = new Trigger<TWorkflowData>(condition, action, rateLimit);
                 _triggers.Add(Tuple.Create(stateName, trigger));
             }
             else
@@ -196,7 +196,7 @@ namespace EasyFlow
             return this;
         }
 
-        public WorkflowEngineBuilder<TWorkflow> SetErrorPolicy(ErrorPolicy policy)
+        public WorkflowEngineBuilder<TWorkflowData> SetErrorPolicy(ErrorPolicy policy)
         {
             if (!Enum.IsDefined(typeof(ErrorPolicy), policy))
             {
@@ -206,18 +206,18 @@ namespace EasyFlow
             switch (policy)
             {
                 case ErrorPolicy.StopWorkflow:
-                    return SetErrorPolicy(new ErrorPolicyStopWorkflow<TWorkflow>());
+                    return SetErrorPolicy(new ErrorPolicyStopWorkflow<TWorkflowData>());
 
                 case ErrorPolicy.Ignore:
-                    return SetErrorPolicy(new ErrorPolicyIgnore<TWorkflow>());
+                    return SetErrorPolicy(new ErrorPolicyIgnore<TWorkflowData>());
                 
                 case ErrorPolicy.Throw:
                 default:
-                    return SetErrorPolicy(new ErrorPolicyThrow<TWorkflow>());
+                    return SetErrorPolicy(new ErrorPolicyThrow<TWorkflowData>());
             }
         }
 
-        public WorkflowEngineBuilder<TWorkflow> SetErrorPolicy(string stateName, ErrorPolicy policy)
+        public WorkflowEngineBuilder<TWorkflowData> SetErrorPolicy(string stateName, ErrorPolicy policy)
         {
             if (!Enum.IsDefined(typeof(ErrorPolicy), policy))
             {
@@ -227,18 +227,18 @@ namespace EasyFlow
             switch (policy)
             {
                 case ErrorPolicy.StopWorkflow:
-                    return SetErrorPolicy(new ErrorPolicyStopWorkflow<TWorkflow>(), stateName);
+                    return SetErrorPolicy(new ErrorPolicyStopWorkflow<TWorkflowData>(), stateName);
 
                 case ErrorPolicy.Ignore:
-                    return SetErrorPolicy(new ErrorPolicyIgnore<TWorkflow>(), stateName);
+                    return SetErrorPolicy(new ErrorPolicyIgnore<TWorkflowData>(), stateName);
 
                 case ErrorPolicy.Throw:
                 default:
-                    return SetErrorPolicy(new ErrorPolicyThrow<TWorkflow>(), stateName);
+                    return SetErrorPolicy(new ErrorPolicyThrow<TWorkflowData>(), stateName);
             }
         }
 
-        public WorkflowEngineBuilder<TWorkflow> SetErrorPolicy(IErrorPolicy<TWorkflow> policy)
+        public WorkflowEngineBuilder<TWorkflowData> SetErrorPolicy(IErrorPolicy<TWorkflowData> policy)
         {
             if (policy == null)
             {
@@ -250,7 +250,7 @@ namespace EasyFlow
             return this;
         }
 
-        public WorkflowEngineBuilder<TWorkflow> SetErrorPolicy(IErrorPolicy<TWorkflow> policy, string stateName)
+        public WorkflowEngineBuilder<TWorkflowData> SetErrorPolicy(IErrorPolicy<TWorkflowData> policy, string stateName)
         {
             if (String.IsNullOrWhiteSpace(stateName))
             {
@@ -278,10 +278,10 @@ namespace EasyFlow
             return this;
         }
 
-        public WorkflowEngineBuilder<TWorkflow> AttachSubordinateEngine<TSubordinateWorkflow>(
+        public WorkflowEngineBuilder<TWorkflowData> AttachSubordinateEngine(
             string stateName,
-            IWorkflowEngine<TSubordinateWorkflow> subordinateEngine) 
-            where TSubordinateWorkflow : Workflow
+            IWorkflowEngine<TWorkflowData> subordinateEngine) 
+            //where TSubordinateWorkflow : Workflow
         {
             if (String.IsNullOrWhiteSpace(stateName))
             {
@@ -306,15 +306,15 @@ namespace EasyFlow
             return this;
         }
 
-        public IWorkflowEngine<TWorkflow> BuildEngine(
-            IWorkflowFactory<TWorkflow>   workflowFactory,
-            IWorkflowDataRetriever<TWorkflow> workflowRetriever = null,
-            IWorkflowStorage<TWorkflow>   workflowStorage   = null)
+        public IWorkflowEngine<TWorkflowData> BuildEngine(
+            //IWorkflowFactory<TWorkflow>   workflowFactory,
+            //IWorkflowDataRetriever<TWorkflow> workflowRetriever = null,
+            IWorkflowStorage<TWorkflowData> workflowStorage   = null)
         {
-            if (workflowFactory == null)
-            {
-                throw new ArgumentNullException(nameof(workflowFactory));
-            }
+            //if (workflowFactory == null)
+            //{
+            //    throw new ArgumentNullException(nameof(workflowFactory));
+            //}
 
             if (_entryState == null)
             {
@@ -326,7 +326,7 @@ namespace EasyFlow
                 SetErrorPolicy(ErrorPolicy.Default);
             }
 
-            var engine = new WorkflowEngine<TWorkflow>(_engineName);
+            var engine = new WorkflowEngine<TWorkflowData>(_engineName);
 
             engine.InitialState = _entryState;
             engine.ErrorPolicy = _errorPolicy;
@@ -347,7 +347,7 @@ namespace EasyFlow
             foreach (var pair in _triggers)
             {
                 string state = pair.Item1;
-                Trigger<TWorkflow> trigger = pair.Item2;
+                Trigger<TWorkflowData> trigger = pair.Item2;
 
                 engine.AddTrigger(state, trigger);
             }
@@ -360,7 +360,7 @@ namespace EasyFlow
             foreach (var policyOverride in _errorPolicyOverridesByState)
             {
                 string state = policyOverride.Key;
-                IErrorPolicy<TWorkflow> policy = policyOverride.Value;
+                IErrorPolicy<TWorkflowData> policy = policyOverride.Value;
 
                 engine.SetErrorPolicyOverride(policy, state);
             }
@@ -373,8 +373,8 @@ namespace EasyFlow
                 engine.AttachSubordinate(state, subordinateEngine);
             }
 
-            engine.WorkflowDataRetriever = workflowRetriever;
-            engine.WorkflowFactory       = workflowFactory;
+            //engine.WorkflowDataRetriever = workflowRetriever;
+            //engine.WorkflowFactory       = workflowFactory;
             engine.WorkflowStorage       = workflowStorage;
 
             return engine;
@@ -443,14 +443,14 @@ namespace EasyFlow
         private State _entryState = null;
         private readonly Dictionary<string, State>
             _statesByName = new Dictionary<string, State>();
-        private readonly List<Transition<TWorkflow>> _transitions = new List<Transition<TWorkflow>>();
-        private readonly List<Tuple<string, Trigger<TWorkflow>>> _triggers = new List<Tuple<string, Trigger<TWorkflow>>>();
-        private readonly List<Exit<TWorkflow>> _exits = new List<Exit<TWorkflow>>();
-        private IErrorPolicy<TWorkflow> _errorPolicy = null;
-        private Dictionary<string, IErrorPolicy<TWorkflow>>
-            _errorPolicyOverridesByState = new Dictionary<string, IErrorPolicy<TWorkflow>>();
-        private Dictionary<string, IWorkflowEngine<Workflow>>
-            _subordinateWorkflowsByState = new Dictionary<string, IWorkflowEngine<Workflow>>();
+        private readonly List<Transition<TWorkflowData>> _transitions = new List<Transition<TWorkflowData>>();
+        private readonly List<Tuple<string, Trigger<TWorkflowData>>> _triggers = new List<Tuple<string, Trigger<TWorkflowData>>>();
+        private readonly List<Exit<TWorkflowData>> _exits = new List<Exit<TWorkflowData>>();
+        private IErrorPolicy<TWorkflowData> _errorPolicy = null;
+        private Dictionary<string, IErrorPolicy<TWorkflowData>>
+            _errorPolicyOverridesByState = new Dictionary<string, IErrorPolicy<TWorkflowData>>();
+        private Dictionary<string, IWorkflowEngine<TWorkflowData>>
+            _subordinateWorkflowsByState = new Dictionary<string, IWorkflowEngine<TWorkflowData>>();
 
         private static readonly char[] IllegalCharacters = new[] { '*', ':' };
 
@@ -460,15 +460,15 @@ namespace EasyFlow
             + String.Join(", ", IllegalCharacters);
     }
 
-    public class TransitionBuilder<TWorkflow> where TWorkflow : Workflow
+    public class TransitionBuilder<TWorkflowData> where TWorkflowData : class
     {
-        public TransitionBuilder<TWorkflow> From(string state)
+        public TransitionBuilder<TWorkflowData> From(string state)
         {
             _from.Add(state);
             return this;
         }
 
-        public TransitionBuilder<TWorkflow> From(IEnumerable<string> states)
+        public TransitionBuilder<TWorkflowData> From(IEnumerable<string> states)
         {
             foreach (var state in states)
             {
@@ -478,36 +478,36 @@ namespace EasyFlow
             return this;
         }
 
-        public TransitionBuilder<TWorkflow> From(params string[] states)
+        public TransitionBuilder<TWorkflowData> From(params string[] states)
         {
             return From(states);
         }
 
-        public TransitionBuilder<TWorkflow> To(string state)
+        public TransitionBuilder<TWorkflowData> To(string state)
         {
             _to = state;
             return this;
         }
 
-        public TransitionBuilder<TWorkflow> When(Predicate<TWorkflow> condition)
+        public TransitionBuilder<TWorkflowData> When(Predicate<TWorkflowData> condition)
         {
             _condition = condition;
             return this;
         }
 
-        public TransitionBuilder<TWorkflow> WhenAny(params Predicate<TWorkflow>[] conditions)
+        public TransitionBuilder<TWorkflowData> WhenAny(params Predicate<TWorkflowData>[] conditions)
         {
             _condition = w => conditions.All(c => c?.Invoke(w) ?? true);
             return this;
         }
 
-        public TransitionBuilder<TWorkflow> WhenAll(params Predicate<TWorkflow>[] conditions)
+        public TransitionBuilder<TWorkflowData> WhenAll(params Predicate<TWorkflowData>[] conditions)
         {
             _condition = w => conditions.Any(c => c?.Invoke(w) ?? true);
             return this;
         }
 
-        public TransitionBuilder<TWorkflow> WithAction(Action<TWorkflow> action)
+        public TransitionBuilder<TWorkflowData> WithAction(Action<TWorkflowData> action)
         {
             if (action != null)
             {
@@ -517,7 +517,7 @@ namespace EasyFlow
             return this;
         }
 
-        public TransitionBuilder<TWorkflow> WithActions(IEnumerable<Action<TWorkflow>> actions)
+        public TransitionBuilder<TWorkflowData> WithActions(IEnumerable<Action<TWorkflowData>> actions)
         {
             foreach (var a in actions)
             {
@@ -530,14 +530,14 @@ namespace EasyFlow
             return this;
         }
 
-        public TransitionBuilder<TWorkflow> WithActions(params Action<TWorkflow>[] actions)
+        public TransitionBuilder<TWorkflowData> WithActions(params Action<TWorkflowData>[] actions)
         {
             return WithActions(actions);
         }
 
-        internal void BuildTransition(WorkflowEngineBuilder<TWorkflow> engineBuilder)
+        internal void BuildTransition(WorkflowEngineBuilder<TWorkflowData> engineBuilder)
         {
-            Action<TWorkflow> action = _actions.FirstOrDefault();
+            Action<TWorkflowData> action = _actions.FirstOrDefault();
             foreach (var a in _actions.Skip(1))
             {
                 action += a;
@@ -551,7 +551,7 @@ namespace EasyFlow
 
         private readonly HashSet<string> _from = new HashSet<string>();
         private string _to;
-        private readonly List<Action<TWorkflow>> _actions = new List<Action<TWorkflow>>();
-        private Predicate<TWorkflow> _condition;
+        private readonly List<Action<TWorkflowData>> _actions = new List<Action<TWorkflowData>>();
+        private Predicate<TWorkflowData> _condition;
     }
 }
